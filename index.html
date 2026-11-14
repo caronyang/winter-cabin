@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>冬日小屋・微縮雪景 360°</title>
+<style>
+  :root{
+    --ink:#4a4453;
+    --ink-soft:#7a7286;
+    --line:rgba(255,255,255,.65);
+    --glass:rgba(255,255,255,.55);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;overflow:hidden}
+  body{
+    font-family:"Segoe UI","Microsoft JhengHei","Noto Sans TC",system-ui,sans-serif;
+    color:var(--ink);
+    background:linear-gradient(180deg,#f8e7e7 0%,#f3e8ee 45%,#dde4f4 100%);
+    -webkit-font-smoothing:antialiased;
+  }
+  canvas{display:block;position:fixed;inset:0;outline:none}
+
+  .hud{position:fixed;z-index:5;pointer-events:none}
+  .title{top:26px;left:30px}
+  .title h1{
+    margin:0;font-size:20px;font-weight:600;letter-spacing:.14em;
+    text-shadow:0 1px 0 rgba(255,255,255,.6);
+  }
+  .title p{
+    margin:7px 0 0;font-size:11.5px;letter-spacing:.22em;color:var(--ink-soft);
+    text-transform:uppercase;
+  }
+
+  .bar{
+    bottom:58px;left:50%;transform:translateX(-50%);
+    display:flex;gap:8px;pointer-events:auto;
+    padding:7px;border-radius:999px;
+    background:rgba(255,255,255,.5);
+    border:1px solid rgba(255,255,255,.75);
+    box-shadow:0 10px 30px rgba(90,74,110,.14), inset 0 1px 0 rgba(255,255,255,.8);
+    backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  }
+  .bar button{
+    appearance:none;border:0;background:transparent;color:var(--ink);
+    font:inherit;font-size:12.5px;letter-spacing:.06em;
+    padding:9px 15px;border-radius:999px;cursor:pointer;
+    display:flex;align-items:center;gap:7px;
+    transition:background .2s ease, color .2s ease, transform .12s ease;
+    white-space:nowrap;
+  }
+  .bar button:hover{background:rgba(255,255,255,.85)}
+  .bar button:active{transform:scale(.97)}
+  .bar button.on{background:rgba(120,148,196,.22);color:#3c4a66}
+  .bar svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.6;
+    stroke-linecap:round;stroke-linejoin:round;opacity:.85}
+
+  .hint{
+    bottom:26px;left:50%;transform:translateX(-50%);
+    font-size:11px;letter-spacing:.16em;color:rgba(74,68,83,.45);
+    white-space:nowrap;
+  }
+  .credit{
+    right:26px;bottom:30px;font-size:10.5px;letter-spacing:.14em;
+    color:rgba(74,68,83,.42);text-transform:uppercase;
+  }
+
+  #loader{
+    position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:18px;
+    background:linear-gradient(180deg,#f8e7e7 0%,#f3e8ee 45%,#dde4f4 100%);
+    transition:opacity .7s ease;
+  }
+  #loader.gone{opacity:0;pointer-events:none}
+  .flake{
+    width:34px;height:34px;border-radius:50%;
+    border:2px solid rgba(120,148,196,.28);
+    border-top-color:#8aa3cf;animation:spin 1s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #loader span{font-size:11.5px;letter-spacing:.28em;color:var(--ink-soft)}
+
+  .toast{
+    position:fixed;left:50%;bottom:104px;z-index:30;pointer-events:none;
+    transform:translateX(-50%) translateY(8px);
+    padding:9px 16px;border-radius:999px;
+    background:rgba(74,68,83,.86);color:#fff;
+    font-size:12px;letter-spacing:.08em;white-space:nowrap;
+    opacity:0;transition:opacity .25s ease, transform .25s ease;
+    box-shadow:0 8px 24px rgba(74,68,83,.25);
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  @media (max-width:640px){
+    .title{top:18px;left:18px}
+    .title h1{font-size:16px}
+    .title p{font-size:9.5px;letter-spacing:.16em}
+    .credit{display:none}
+    .bar button{padding:8px 11px;font-size:11.5px}
+    .bar button span{display:none}
+    .hint{font-size:9.5px;letter-spacing:.1em}
+  }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+
+<div class="hud title">
+  <h1>冬日小屋</h1>
+  <p>Miniature Winter Diorama</p>
+</div>
+
+<div class="hud bar">
+  <button id="btnRot" class="on" title="自動旋轉">
+    <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+    <span>自動旋轉</span>
+  </button>
+  <button id="btnReset" title="重設視角">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4v3M12 17v3M4 12h3M17 12h3"/></svg>
+    <span>重設視角</span>
+  </button>
+  <button id="btnShot" title="儲存圖片">
+    <svg viewBox="0 0 24 24"><path d="M4 8h3l1.6-2h6.8L17 8h3v11H4z"/><circle cx="12" cy="13.4" r="3.2"/></svg>
+    <span>儲存圖片</span>
+  </button>
+</div>
+
+<div class="hud hint">拖曳旋轉 · 滾輪縮放 · 右鍵平移</div>
+<div class="hud credit">Blender Cycles · three.js</div>
+
+<div id="toast" class="toast"></div>
+
+<div id="loader"><div class="flake"></div><span>正在堆雪…</span></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./libs/three.module.js",
+    "three/addons/": "./libs/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const canvas = document.getElementById('stage');
+
+/* ---------------- renderer ---------------- */
+const renderer = new THREE.WebGLRenderer({
+  canvas, antialias: true, alpha: false, preserveDrawingBuffer: true,
+  powerPreference: 'high-performance'
+});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.92;
+
+/* ---------------- scene ---------------- */
+const scene = new THREE.Scene();
+
+function gradientBackground(){
+  const c = document.createElement('canvas');
+  c.width = 8; c.height = 512;
+  const g = c.getContext('2d').createLinearGradient(0, 0, 0, 512);
+  g.addColorStop(0.00, '#f7ded8');
+  g.addColorStop(0.42, '#efdee9');
+  g.addColorStop(0.72, '#dbe0f2');
+  g.addColorStop(1.00, '#c9d6ef');
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, 8, 512);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+scene.background = gradientBackground();
+
+const camera = new THREE.PerspectiveCamera(32, window.innerWidth / window.innerHeight, 0.1, 400);
+
+const pmrem = new THREE.PMREMGenerator(renderer);
+const envRT = pmrem.fromScene(new RoomEnvironment(), 0.05);
+scene.environment = envRT.texture;
+if ('environmentIntensity' in scene) scene.environmentIntensity = 0.12;
+
+/* ---------------- lights ---------------- */
+const hemi = new THREE.HemisphereLight(0xffffff, 0xd8d2e8, 0.3);
+scene.add(hemi);
+
+const key = new THREE.DirectionalLight(0xfff1dc, 1.75);
+key.position.set(9, 17, 9);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.left = -13; key.shadow.camera.right = 13;
+key.shadow.camera.top = 13; key.shadow.camera.bottom = -13;
+key.shadow.camera.near = 1; key.shadow.camera.far = 60;
+key.shadow.bias = -0.0006;
+key.shadow.normalBias = 0.035;
+key.shadow.radius = 3;
+scene.add(key);
+
+const fill = new THREE.DirectionalLight(0xd4e2ff, 0.45);
+fill.position.set(-11, 8, 5);
+scene.add(fill);
+
+const rim = new THREE.DirectionalLight(0xe9f1ff, 0.38);
+rim.position.set(-3, 9, -13);
+scene.add(rim);
+
+/* ---------------- soft shadow blob ---------------- */
+function radialTex(inner, outer){
+  const s = 256;
+  const c = document.createElement('canvas');
+  c.width = c.height = s;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(s/2, s/2, 0, s/2, s/2, s/2);
+  g.addColorStop(0, inner);
+  g.addColorStop(0.55, outer);
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, s, s);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const blob = new THREE.Mesh(
+  new THREE.PlaneGeometry(1, 1),
+  new THREE.MeshBasicMaterial({
+    map: radialTex('rgba(120,108,140,.34)', 'rgba(120,108,140,.10)'),
+    transparent: true, depthWrite: false
+  })
+);
+blob.rotation.x = -Math.PI / 2;
+blob.position.y = -6.4;
+scene.add(blob);
+
+/* ---------------- snow ---------------- */
+const FLAKES = 520;
+const flakeGeo = new THREE.BufferGeometry();
+const pos = new Float32Array(FLAKES * 3);
+const vel = new Float32Array(FLAKES);
+const SPAN = 17, TOP = 15, BOT = -7;
+for (let i = 0; i < FLAKES; i++){
+  pos[i*3]   = (Math.random() - .5) * SPAN * 2;
+  pos[i*3+1] = Math.random() * (TOP - BOT) + BOT;
+  pos[i*3+2] = (Math.random() - .5) * SPAN * 2;
+  vel[i] = 0.5 + Math.random() * 1.1;
+}
+flakeGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+const flakeMat = new THREE.PointsMaterial({
+  size: 0.16, map: radialTex('rgba(255,255,255,1)', 'rgba(255,255,255,.55)'),
+  transparent: true, depthWrite: false, opacity: 0.9,
+  sizeAttenuation: true, color: 0xffffff
+});
+const flakes = new THREE.Points(flakeGeo, flakeMat);
+scene.add(flakes);
+
+/* ---------------- controls ---------------- */
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.055;
+controls.rotateSpeed = 0.85;
+controls.zoomSpeed = 0.8;
+controls.panSpeed = 0.6;
+controls.minPolarAngle = 0.18;
+controls.maxPolarAngle = Math.PI * 0.545;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.65;
+controls.target.set(0, 1.0, 0);
+
+/* ---------------- load model ---------------- */
+let model = null, homeDist = 30, homePos = new THREE.Vector3();
+const loader = new GLTFLoader();
+const loaderEl = document.getElementById('loader');
+
+function fitCamera(){
+  const box = new THREE.Box3().setFromObject(model);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+
+  // centre horizontally, keep the snow line as the vertical anchor
+  model.position.x -= center.x;
+  model.position.z -= center.z;
+
+  const fovV = THREE.MathUtils.degToRad(camera.fov);
+  const fovH = 2 * Math.atan(Math.tan(fovV / 2) * camera.aspect);
+  const spanY = Math.max(size.y * 1.15, 6);
+  const distV = (spanY * 0.5) / Math.tan(fovV / 2);
+  const distH = (Math.max(size.x, size.z) * 0.5) / Math.tan(fovH / 2);
+  homeDist = Math.max(distV, distH) * 1.16;
+
+  controls.target.set(0, 0.9, 0);
+  controls.minDistance = homeDist * 0.42;
+  controls.maxDistance = homeDist * 2.0;
+
+  const sph = new THREE.Spherical(homeDist, THREE.MathUtils.degToRad(54.7), THREE.MathUtils.degToRad(45));
+  homePos.setFromSpherical(sph).add(controls.target);
+  camera.position.copy(homePos);
+  camera.lookAt(controls.target);
+
+  blob.scale.setScalar(Math.max(size.x, size.z) * 2.1);
+  blob.position.y = box.min.y - 0.9;
+}
+
+loader.load('./winter_cabin.glb', (gltf) => {
+  model = gltf.scene;
+  model.traverse((o) => {
+    if (!o.isMesh) return;
+    o.castShadow = true;
+    o.receiveShadow = true;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    for (const m of mats){
+      if (!m) continue;
+      if (m.transparent && (m.opacity ?? 1) < 0.95) o.castShadow = false;
+      if ('envMapIntensity' in m) m.envMapIntensity = 0.45;
+      if (m.emissiveIntensity !== undefined && m.emissive && m.emissive.getHex() !== 0) {
+        m.emissiveIntensity = Math.min(m.emissiveIntensity, 3.2);
+      }
+    }
+  });
+  scene.add(model);
+  fitCamera();
+  loaderEl.classList.add('gone');
+  setTimeout(() => loaderEl.remove(), 800);
+  window.__ready = true;
+}, (ev) => {
+  if (ev.total) {
+    const pct = Math.min(99, Math.round(ev.loaded / ev.total * 100));
+    loaderEl.querySelector('span').textContent = '正在堆雪… ' + pct + '%';
+  }
+}, (err) => {
+  console.error(err);
+  loaderEl.querySelector('span').textContent = '載入失敗，請確認 winter_cabin.glb 存在';
+});
+
+/* ---------------- bloom ---------------- */
+let composer = null;
+try {
+  const [{ EffectComposer }, { RenderPass }, { UnrealBloomPass }, { OutputPass }] = await Promise.all([
+    import('three/addons/postprocessing/EffectComposer.js'),
+    import('three/addons/postprocessing/RenderPass.js'),
+    import('three/addons/postprocessing/UnrealBloomPass.js'),
+    import('three/addons/postprocessing/OutputPass.js')
+  ]);
+  const rt = new THREE.WebGLRenderTarget(window.innerWidth, window.innerHeight, {
+    type: THREE.HalfFloatType, samples: 4
+  });
+  composer = new EffectComposer(renderer, rt);
+  composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  composer.setSize(window.innerWidth, window.innerHeight);
+  composer.addPass(new RenderPass(scene, camera));
+  const bloomPass = new UnrealBloomPass(
+    new THREE.Vector2(window.innerWidth, window.innerHeight), 0.32, 0.55, 1.2);
+  composer.addPass(bloomPass);
+  window.__bloom = bloomPass;
+  composer.addPass(new OutputPass());
+} catch (e) {
+  console.warn('Bloom disabled:', e);
+}
+
+/* ---------------- ui ---------------- */
+const btnRot = document.getElementById('btnRot');
+btnRot.addEventListener('click', () => {
+  controls.autoRotate = !controls.autoRotate;
+  btnRot.classList.toggle('on', controls.autoRotate);
+});
+
+let tween = null;
+document.getElementById('btnReset').addEventListener('click', () => {
+  tween = {
+    t: 0,
+    from: camera.position.clone(),
+    fromTarget: controls.target.clone(),
+    to: homePos.clone(),
+    toTarget: new THREE.Vector3(0, 0.9, 0)
+  };
+});
+
+function toast(msg){
+  const el = document.getElementById('toast');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), 2400);
+}
+
+document.getElementById('btnShot').addEventListener('click', () => {
+  try {
+    render();
+    const url = canvas.toDataURL('image/png');
+    const d = new Date();
+    const zp = (n) => String(n).padStart(2, '0');
+    const stamp = d.getFullYear() + zp(d.getMonth() + 1) + zp(d.getDate()) + '-'
+                + zp(d.getHours()) + zp(d.getMinutes()) + zp(d.getSeconds());
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'winter-cabin-' + stamp + '.png';
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    toast('已儲存圖片，請看下載資料夾');
+  } catch (err) {
+    console.error(err);
+    toast('儲存失敗：' + (err && err.message ? err.message : err));
+  }
+});
+
+/* ---------------- loop ---------------- */
+const clock = new THREE.Clock();
+function render(){
+  if (composer) composer.render();
+  else renderer.render(scene, camera);
+}
+
+function animate(){
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+
+  if (tween){
+    tween.t = Math.min(1, tween.t + dt * 1.6);
+    const e = 1 - Math.pow(1 - tween.t, 3);
+    camera.position.lerpVectors(tween.from, tween.to, e);
+    controls.target.lerpVectors(tween.fromTarget, tween.toTarget, e);
+    if (tween.t >= 1) tween = null;
+  }
+
+  // snow drift
+  const p = flakeGeo.attributes.position.array;
+  for (let i = 0; i < FLAKES; i++){
+    p[i*3+1] -= vel[i] * dt;
+    p[i*3]   += Math.sin((p[i*3+1] + i) * 0.55) * dt * 0.25;
+    if (p[i*3+1] < BOT){
+      p[i*3+1] = TOP;
+      p[i*3]   = (Math.random() - .5) * SPAN * 2;
+      p[i*3+2] = (Math.random() - .5) * SPAN * 2;
+    }
+  }
+  flakeGeo.attributes.position.needsUpdate = true;
+
+  controls.update();
+  render();
+}
+window.__viewer = { scene, camera, controls, renderer, key, fill, rim, hemi, get bloom(){return window.__bloom;} };
+animate();
+
+/* ---------------- resize ---------------- */
+window.addEventListener('resize', () => {
+  const w = window.innerWidth, h = window.innerHeight;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+  if (composer) composer.setSize(w, h);
+});
+</script>
+</body>
+</html>
