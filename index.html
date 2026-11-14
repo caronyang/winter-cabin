@@ -653,18 +653,46 @@ document.querySelectorAll('#segSnow button').forEach(b => {
 
 /* ---------------- gentle generative music (Web Audio) ---------------- */
 const Music = (() => {
-  let ctx = null, master = null, padBus = null, melBus = null, wet = null;
-  let on = false, chordIdx = 0, nextChord = 0, nextBell = 0, timer = null;
+  let ctx = null, master = null, wet = null, soften = null, timer = null;
+  let on = false, barTime = 0, barIndex = 0;
 
-  // Cmaj7 -> Am7 -> Fmaj7 -> G6   (warm, never resolves too hard)
-  const CHORDS = [
-    { root: 65.41, notes: [261.63, 329.63, 392.00, 493.88] },  // Cmaj7
-    { root: 55.00, notes: [220.00, 261.63, 329.63, 392.00] },  // Am7
-    { root: 43.65, notes: [174.61, 220.00, 261.63, 329.63] },  // Fmaj7
-    { root: 49.00, notes: [196.00, 246.94, 293.66, 329.63] }   // G6
+  const BPM = 68;
+  const BEAT = 60 / BPM;
+  const BAR = BEAT * 4;
+
+  // C major, 8-bar progression:  C  G/B  Am  F  |  C  G  F  G
+  const PROG = [
+    { tones: [48, 52, 55] },   // C
+    { tones: [47, 50, 55] },   // G/B
+    { tones: [45, 48, 52] },   // Am
+    { tones: [41, 45, 48] },   // F
+    { tones: [48, 52, 55] },   // C
+    { tones: [43, 47, 50] },   // G
+    { tones: [41, 45, 48] },   // F
+    { tones: [43, 47, 50] }    // G
   ];
-  // C major pentatonic, music-box register
-  const BELLS = [523.25, 587.33, 659.25, 783.99, 880.00, 1046.50];
+
+  // melody: [beat, midi, beats, velocity]
+  const A = [
+    [[0,76,1,.90],[1,79,1,.80],[2,81,1.5,.85],[3.5,79,.5,.70]],
+    [[0,74,1,.85],[1,79,1,.80],[2,83,2,.90]],
+    [[0,84,1.5,.90],[1.5,83,.5,.75],[2,81,2,.85]],
+    [[0,81,1,.80],[1,79,1,.80],[2,77,2,.75]],
+    [[0,76,1,.85],[1,79,1,.80],[2,81,1,.80],[3,79,1,.75]],
+    [[0,74,1,.80],[1,76,1,.80],[2,79,2,.85]],
+    [[0,81,1,.85],[1,84,1,.90],[2,81,1,.80],[3,77,1,.75]],
+    [[0,79,2,.85],[2,74,2,.70]]
+  ];
+  const B = [
+    [[0,79,1,.80],[1,76,1,.78],[2,72,2,.72]],
+    [[0,74,1,.80],[1,79,1,.80],[2,83,2,.85]],
+    [[0,81,1,.85],[1,84,1,.88],[2,81,2,.80]],
+    [[0,77,1,.80],[1,81,1,.82],[2,84,2,.86]],
+    [[0,76,1.5,.85],[1.5,79,.5,.72],[2,76,2,.78]],
+    [[0,74,1,.80],[1,83,1,.85],[2,79,2,.82]],
+    [[0,81,1,.82],[1,77,1,.78],[2,72,1,.72],[3,76,1,.75]],
+    [[0,74,4,.72]]
+  ];
 
   function impulse(seconds, decay){
     const rate = ctx.sampleRate;
@@ -672,9 +700,7 @@ const Music = (() => {
     const buf = ctx.createBuffer(2, len, rate);
     for (let ch = 0; ch < 2; ch++){
       const d = buf.getChannelData(ch);
-      for (let i = 0; i < len; i++){
-        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
-      }
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
     }
     return buf;
   }
@@ -686,99 +712,97 @@ const Music = (() => {
 
     master = ctx.createGain();
     master.gain.value = 0;
+    soften = ctx.createBiquadFilter();
+    soften.type = 'lowpass';
+    soften.frequency.value = 5200;
+    soften.Q.value = 0.4;
+    soften.connect(master);
     master.connect(ctx.destination);
 
     const conv = ctx.createConvolver();
-    conv.buffer = impulse(2.8, 2.9);
+    conv.buffer = impulse(2.6, 2.8);
     wet = ctx.createGain();
-    wet.gain.value = 0.40;
-    wet.connect(conv).connect(master);
+    wet.gain.value = 0.42;
+    wet.connect(conv);
+    conv.connect(master);
 
-    padBus = ctx.createGain();
-    padBus.gain.value = 0.5;
-    const hp = ctx.createBiquadFilter();
-    hp.type = 'highpass';
-    hp.frequency.value = 105;   // remove the heavy sub rumble
-    hp.Q.value = 0.7;
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = 1250;  // softer, airier top
-    lp.Q.value = 0.35;
-    padBus.connect(hp);
-    hp.connect(lp);
-    lp.connect(master);         // dry
-    lp.connect(wet);            // reverb send
-
-    melBus = ctx.createGain();
-    melBus.gain.value = 0.5;
-    melBus.connect(master);
-    melBus.connect(wet);
-
-    nextChord = ctx.currentTime + 0.2;
-    nextBell = ctx.currentTime + 3.0;
-    timer = setInterval(schedule, 250);
+    barTime = ctx.currentTime + 0.15;
+    barIndex = 0;
   }
 
-  function pad(note, t, dur, vol){
-    for (const det of [-5, 5]){
+  function piano(midi, t, dur, vol){
+    const f = 440 * Math.pow(2, (midi - 69) / 12);
+    const g = ctx.createGain();
+    const atk = 0.008;
+    const tail = Math.max(0.85, dur + 0.45);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t + atk);
+    g.gain.exponentialRampToValueAtTime(Math.max(vol * 0.42, 0.0003), t + 0.24);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + atk + tail);
+
+    const pan = ctx.createStereoPanner();
+    pan.pan.value = Math.max(-0.3, Math.min(0.3, (midi - 72) / 20));
+    g.connect(pan);
+    pan.connect(soften);
+    pan.connect(wet);
+
+    [[1, 1.0, 'triangle'], [2, 0.26, 'sine'], [3, 0.08, 'sine']].forEach(([h, amp, type]) => {
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.value = f * h;
+      const og = ctx.createGain();
+      og.gain.value = amp;
+      o.connect(og);
+      og.connect(g);
+      o.start(t);
+      o.stop(t + atk + tail + 0.05);
+    });
+  }
+
+  function pad(tones, t, dur){
+    tones.forEach((m, i) => {
+      const f = 440 * Math.pow(2, (m - 69) / 12);
       const o = ctx.createOscillator();
       o.type = 'sine';
-      o.frequency.value = note;
-      o.detune.value = det;
+      o.frequency.value = f;
       const g = ctx.createGain();
       g.gain.setValueAtTime(0.0001, t);
-      g.gain.linearRampToValueAtTime(vol, t + dur * 0.34);
-      g.gain.setValueAtTime(vol, t + dur * 0.62);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      const pan = ctx.createStereoPanner();
-      pan.pan.value = det < 0 ? -0.35 : 0.35;
-      o.connect(g).connect(pan).connect(padBus);
+      g.gain.linearRampToValueAtTime(0.012, t + 1.6);
+      g.gain.setValueAtTime(0.012, t + dur * 0.7);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 1.2);
+      o.connect(g);
+      g.connect(soften);
+      g.connect(wet);
       o.start(t);
-      o.stop(t + dur + 0.1);
-    }
+      o.stop(t + dur + 1.4);
+    });
   }
 
-  function bell(freq, t, vol){
-    const o = ctx.createOscillator();
-    o.type = 'triangle';
-    o.frequency.value = freq;
-    const o2 = ctx.createOscillator();
-    o2.type = 'sine';
-    o2.frequency.value = freq * 2.002;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(vol, t + 0.015);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 2.4);
-    const g2 = ctx.createGain();
-    g2.gain.value = 0.25;
-    o.connect(g); o2.connect(g2).connect(g);
-    g.connect(melBus);
-    o.start(t); o.stop(t + 2.6);
-    o2.start(t); o2.stop(t + 2.6);
+  function scheduleBar(t, idx){
+    const bar = idx % PROG.length;
+    const ch = PROG[bar];
+    const section = (Math.floor(idx / PROG.length) % 2 === 0) ? A : B;
+    const line = section[bar];
+
+    // gentle left hand: root - fifth - octave - third
+    const arp = [ch.tones[0], ch.tones[2], ch.tones[0] + 12, ch.tones[1]];
+    arp.forEach((m, i) => piano(m, t + i * BEAT, BEAT * 1.6, 0.030));
+
+    // melody
+    line.forEach(([b, m, d, v]) => piano(m, t + b * BEAT, d * BEAT, 0.062 * v));
+
+    // very quiet sustained pad
+    pad(ch.tones, t, BAR);
   }
 
   function schedule(){
     if (!ctx || !on) return;
-    const ahead = ctx.currentTime + 1.2;
-    if (nextChord < ctx.currentTime) nextChord = ctx.currentTime + 0.05;
-
-    while (nextChord < ahead){
-      const ch = CHORDS[chordIdx % CHORDS.length];
-      const dur = 8.4;
-      ch.notes.forEach((n, i) => pad(n, nextChord + i * 0.2, dur, 0.034));
-      chordIdx++;
-      nextChord += dur * 0.85;
-    }
-
-    if (nextBell < ctx.currentTime) nextBell = ctx.currentTime + 0.3;
-    while (nextBell < ahead){
-      const n = BELLS[Math.floor(Math.random() * BELLS.length)];
-      bell(n, nextBell, 0.1);
-      if (Math.random() < 0.28){
-        const n2 = BELLS[Math.floor(Math.random() * BELLS.length)];
-        if (n2 !== n) bell(n2, nextBell + 0.42, 0.045);
-      }
-      nextBell += 1.6 + Math.random() * 2.8;
+    const ahead = ctx.currentTime + 1.8;
+    if (barTime < ctx.currentTime) barTime = ctx.currentTime + 0.05;
+    while (barTime < ahead){
+      scheduleBar(barTime, barIndex);
+      barIndex++;
+      barTime += BAR;
     }
   }
 
@@ -789,55 +813,75 @@ const Music = (() => {
     master.gain.linearRampToValueAtTime(to, t + seconds);
   }
 
-  async function toggle(){
+  function toggle(){
     if (!ctx) init();
-    if (ctx.state === 'suspended') { try { await ctx.resume(); } catch (e) {} }
+    if (ctx.state !== 'running') { try { ctx.resume(); } catch (e) {} }
     on = !on;
     if (on){
-      if (nextChord < ctx.currentTime) nextChord = ctx.currentTime + 0.15;
-      fade(0.5, 2.2);
+      if (barTime < ctx.currentTime) barTime = ctx.currentTime + 0.12;
+      fade(0.55, 1.8);
       if (!timer) timer = setInterval(schedule, 250);
       schedule();
     } else {
-      fade(0.0001, 1.2);
+      fade(0.0001, 0.9);
       if (timer) { clearInterval(timer); timer = null; }
     }
     try { localStorage.setItem('wc-music', on ? '1' : '0'); } catch (e) {}
     return on;
   }
 
-  function isOn(){ return on; }
-
-  return { toggle, isOn, get context(){ return ctx; }, get masterNode(){ return master; } };
+  return {
+    toggle,
+    isOn(){ return on; },
+    get context(){ return ctx; },
+    get masterNode(){ return master; }
+  };
 })();
 
 window.__music = Music;
 const btnMusic = document.getElementById('btnMusic');
-async function toggleMusic(silent){
-  const playing = await Music.toggle();
+
+function syncMusicBtn(){
+  const playing = Music.isOn();
   btnMusic.classList.toggle('on', playing);
   btnMusic.setAttribute('aria-pressed', playing ? 'true' : 'false');
-  if (silent) { if (playing) toast('背景音樂已開啟 · 點 ♪ 可關閉'); }
-  else toast(playing ? '背景音樂已開啟' : '背景音樂已關閉');
 }
-btnMusic.addEventListener('click', () => toggleMusic(false));
 
-// 預設開啟：瀏覽器要求先有使用者互動，所以第一次點擊/按鍵時自動開始
-let musicArmed = true;
+let wakeArmed = true;
 try {
   const saved = localStorage.getItem('wc-music');
-  musicArmed = saved === null ? true : saved === '1';
-} catch (e) { musicArmed = true; }
-if (musicArmed){
-  const wake = async () => {
-    document.removeEventListener('pointerdown', wake);
-    document.removeEventListener('keydown', wake);
-    if (!Music.isOn()) await toggleMusic(true);
-  };
+  wakeArmed = saved === null ? true : saved === '1';
+} catch (e) { wakeArmed = true; }
+
+function disarmWake(){
+  document.removeEventListener('pointerdown', wake);
+  document.removeEventListener('keydown', wake);
+  document.removeEventListener('touchstart', wake);
+}
+
+function wake(){
+  disarmWake();
+  if (!Music.isOn()){
+    Music.toggle();
+    syncMusicBtn();
+    toast('背景音樂已開啟 · 點 ♪ 可關閉');
+  }
+}
+
+// clicking the music button should not also trigger the "first gesture" auto start
+btnMusic.addEventListener('pointerdown', disarmWake, { capture: true });
+btnMusic.addEventListener('click', () => {
+  const playing = Music.toggle();
+  syncMusicBtn();
+  toast(playing ? '背景音樂已開啟' : '背景音樂已關閉');
+});
+
+if (wakeArmed){
   document.addEventListener('pointerdown', wake, { once: true });
   document.addEventListener('keydown', wake, { once: true });
   document.addEventListener('touchstart', wake, { once: true, passive: true });
 }
+syncMusicBtn();
 
 /* ---------------- loop ---------------- */
 const clock = new THREE.Clock();
