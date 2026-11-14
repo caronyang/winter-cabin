@@ -714,15 +714,15 @@ const Music = (() => {
     master.gain.value = 0;
     soften = ctx.createBiquadFilter();
     soften.type = 'lowpass';
-    soften.frequency.value = 5200;
-    soften.Q.value = 0.4;
+    soften.frequency.value = 3200;
+    soften.Q.value = 0.3;
     soften.connect(master);
     master.connect(ctx.destination);
 
     const conv = ctx.createConvolver();
     conv.buffer = impulse(2.6, 2.8);
     wet = ctx.createGain();
-    wet.gain.value = 0.42;
+    wet.gain.value = 0.48;
     wet.connect(conv);
     conv.connect(master);
 
@@ -733,7 +733,7 @@ const Music = (() => {
   function piano(midi, t, dur, vol){
     const f = 440 * Math.pow(2, (midi - 69) / 12);
     const g = ctx.createGain();
-    const atk = 0.008;
+    const atk = 0.014;
     const tail = Math.max(0.85, dur + 0.45);
     g.gain.setValueAtTime(0.0001, t);
     g.gain.linearRampToValueAtTime(vol, t + atk);
@@ -746,7 +746,7 @@ const Music = (() => {
     pan.connect(soften);
     pan.connect(wet);
 
-    [[1, 1.0, 'triangle'], [2, 0.26, 'sine'], [3, 0.08, 'sine']].forEach(([h, amp, type]) => {
+    [[1, 1.0, 'sine'], [2, 0.20, 'sine'], [3, 0.045, 'sine']].forEach(([h, amp, type]) => {
       const o = ctx.createOscillator();
       o.type = type;
       o.frequency.value = f * h;
@@ -767,8 +767,8 @@ const Music = (() => {
       o.frequency.value = f;
       const g = ctx.createGain();
       g.gain.setValueAtTime(0.0001, t);
-      g.gain.linearRampToValueAtTime(0.012, t + 1.6);
-      g.gain.setValueAtTime(0.012, t + dur * 0.7);
+      g.gain.linearRampToValueAtTime(0.0085, t + 1.8);
+      g.gain.setValueAtTime(0.0085, t + dur * 0.7);
       g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 1.2);
       o.connect(g);
       g.connect(soften);
@@ -786,10 +786,10 @@ const Music = (() => {
 
     // gentle left hand: root - fifth - octave - third
     const arp = [ch.tones[0], ch.tones[2], ch.tones[0] + 12, ch.tones[1]];
-    arp.forEach((m, i) => piano(m, t + i * BEAT, BEAT * 1.6, 0.030));
+    arp.forEach((m, i) => piano(m, t + i * BEAT, BEAT * 1.6, 0.024));
 
     // melody
-    line.forEach(([b, m, d, v]) => piano(m, t + b * BEAT, d * BEAT, 0.062 * v));
+    line.forEach(([b, m, d, v]) => piano(m, t + b * BEAT, d * BEAT, 0.050 * v));
 
     // very quiet sustained pad
     pad(ch.tones, t, BAR);
@@ -819,7 +819,7 @@ const Music = (() => {
     on = !on;
     if (on){
       if (barTime < ctx.currentTime) barTime = ctx.currentTime + 0.12;
-      fade(0.55, 1.8);
+      fade(0.34, 2.2);
       if (!timer) timer = setInterval(schedule, 250);
       schedule();
     } else {
