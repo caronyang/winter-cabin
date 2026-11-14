@@ -819,7 +819,7 @@ const Music = (() => {
     on = !on;
     if (on){
       if (barTime < ctx.currentTime) barTime = ctx.currentTime + 0.12;
-      fade(0.34, 2.2);
+      fade(0.15, 2.2);
       if (!timer) timer = setInterval(schedule, 250);
       schedule();
     } else {
