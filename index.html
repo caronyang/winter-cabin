@@ -658,10 +658,10 @@ const Music = (() => {
 
   // Cmaj7 -> Am7 -> Fmaj7 -> G6   (warm, never resolves too hard)
   const CHORDS = [
-    { root: 65.41, notes: [130.81, 164.81, 196.00, 246.94] },  // Cmaj7
-    { root: 55.00, notes: [110.00, 130.81, 164.81, 196.00] },  // Am7
-    { root: 43.65, notes: [87.31, 110.00, 130.81, 164.81] },   // Fmaj7
-    { root: 49.00, notes: [98.00, 123.47, 146.83, 164.81] }    // G6
+    { root: 65.41, notes: [261.63, 329.63, 392.00, 493.88] },  // Cmaj7
+    { root: 55.00, notes: [220.00, 261.63, 329.63, 392.00] },  // Am7
+    { root: 43.65, notes: [174.61, 220.00, 261.63, 329.63] },  // Fmaj7
+    { root: 49.00, notes: [196.00, 246.94, 293.66, 329.63] }   // G6
   ];
   // C major pentatonic, music-box register
   const BELLS = [523.25, 587.33, 659.25, 783.99, 880.00, 1046.50];
@@ -689,20 +689,25 @@ const Music = (() => {
     master.connect(ctx.destination);
 
     const conv = ctx.createConvolver();
-    conv.buffer = impulse(3.4, 2.6);
+    conv.buffer = impulse(2.8, 2.9);
     wet = ctx.createGain();
-    wet.gain.value = 0.55;
+    wet.gain.value = 0.40;
     wet.connect(conv).connect(master);
 
     padBus = ctx.createGain();
     padBus.gain.value = 0.5;
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 105;   // remove the heavy sub rumble
+    hp.Q.value = 0.7;
     const lp = ctx.createBiquadFilter();
     lp.type = 'lowpass';
-    lp.frequency.value = 780;
-    lp.Q.value = 0.4;
-    padBus.connect(lp);
-    lp.connect(master);       // dry
-    lp.connect(wet);          // reverb send
+    lp.frequency.value = 1250;  // softer, airier top
+    lp.Q.value = 0.35;
+    padBus.connect(hp);
+    hp.connect(lp);
+    lp.connect(master);         // dry
+    lp.connect(wet);            // reverb send
 
     melBus = ctx.createGain();
     melBus.gain.value = 0.5;
@@ -715,7 +720,7 @@ const Music = (() => {
   }
 
   function pad(note, t, dur, vol){
-    for (const det of [-4, 4]){
+    for (const det of [-5, 5]){
       const o = ctx.createOscillator();
       o.type = 'sine';
       o.frequency.value = note;
@@ -725,22 +730,12 @@ const Music = (() => {
       g.gain.linearRampToValueAtTime(vol, t + dur * 0.34);
       g.gain.setValueAtTime(vol, t + dur * 0.62);
       g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      o.connect(g).connect(padBus);
+      const pan = ctx.createStereoPanner();
+      pan.pan.value = det < 0 ? -0.35 : 0.35;
+      o.connect(g).connect(pan).connect(padBus);
       o.start(t);
       o.stop(t + dur + 0.1);
     }
-  }
-
-  function thump(freq, t){
-    const o = ctx.createOscillator();
-    o.type = 'sine';
-    o.frequency.value = freq;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(0.05, t + 1.2);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 5.5);
-    o.connect(g).connect(padBus);
-    o.start(t); o.stop(t + 6);
   }
 
   function bell(freq, t, vol){
@@ -769,22 +764,21 @@ const Music = (() => {
 
     while (nextChord < ahead){
       const ch = CHORDS[chordIdx % CHORDS.length];
-      const dur = 9.5;
-      ch.notes.forEach((n, i) => pad(n, nextChord + i * 0.18, dur, 0.055));
-      thump(ch.root, nextChord);
+      const dur = 8.4;
+      ch.notes.forEach((n, i) => pad(n, nextChord + i * 0.2, dur, 0.034));
       chordIdx++;
-      nextChord += dur * 0.78;
+      nextChord += dur * 0.85;
     }
 
     if (nextBell < ctx.currentTime) nextBell = ctx.currentTime + 0.3;
     while (nextBell < ahead){
       const n = BELLS[Math.floor(Math.random() * BELLS.length)];
-      bell(n, nextBell, 0.07);
+      bell(n, nextBell, 0.1);
       if (Math.random() < 0.28){
         const n2 = BELLS[Math.floor(Math.random() * BELLS.length)];
         if (n2 !== n) bell(n2, nextBell + 0.42, 0.045);
       }
-      nextBell += 2.4 + Math.random() * 4.2;
+      nextBell += 1.6 + Math.random() * 2.8;
     }
   }
 
@@ -814,7 +808,7 @@ const Music = (() => {
 
   function isOn(){ return on; }
 
-  return { toggle, isOn, get context(){ return ctx; } };
+  return { toggle, isOn, get context(){ return ctx; }, get masterNode(){ return master; } };
 })();
 
 window.__music = Music;
