@@ -653,45 +653,45 @@ document.querySelectorAll('#segSnow button').forEach(b => {
 
 /* ---------------- gentle generative music (Web Audio) ---------------- */
 const Music = (() => {
-  let ctx = null, master = null, wet = null, soften = null, timer = null;
+  let ctx = null, master = null, wet = null, soften = null, noiseBuf = null, timer = null;
   let on = false, barTime = 0, barIndex = 0;
 
-  const BPM = 68;
+  const BPM = 104;                 // light and brisk, still gentle
   const BEAT = 60 / BPM;
   const BAR = BEAT * 4;
 
-  // C major, 8-bar progression:  C  G/B  Am  F  |  C  G  F  G
+  // | C | G | Am | F | C | G | F | G |
   const PROG = [
-    { tones: [48, 52, 55] },   // C
-    { tones: [47, 50, 55] },   // G/B
-    { tones: [45, 48, 52] },   // Am
-    { tones: [41, 45, 48] },   // F
-    { tones: [48, 52, 55] },   // C
-    { tones: [43, 47, 50] },   // G
-    { tones: [41, 45, 48] },   // F
-    { tones: [43, 47, 50] }    // G
+    { bass: 48, tones: [60, 64, 67] },   // C
+    { bass: 43, tones: [59, 62, 67] },   // G
+    { bass: 45, tones: [60, 64, 69] },   // Am
+    { bass: 41, tones: [60, 65, 69] },   // F
+    { bass: 48, tones: [60, 64, 67] },   // C
+    { bass: 43, tones: [59, 62, 67] },   // G
+    { bass: 41, tones: [60, 65, 69] },   // F
+    { bass: 43, tones: [59, 62, 67] }    // G
   ];
 
   // melody: [beat, midi, beats, velocity]
   const A = [
-    [[0,76,1,.90],[1,79,1,.80],[2,81,1.5,.85],[3.5,79,.5,.70]],
-    [[0,74,1,.85],[1,79,1,.80],[2,83,2,.90]],
-    [[0,84,1.5,.90],[1.5,83,.5,.75],[2,81,2,.85]],
-    [[0,81,1,.80],[1,79,1,.80],[2,77,2,.75]],
-    [[0,76,1,.85],[1,79,1,.80],[2,81,1,.80],[3,79,1,.75]],
-    [[0,74,1,.80],[1,76,1,.80],[2,79,2,.85]],
-    [[0,81,1,.85],[1,84,1,.90],[2,81,1,.80],[3,77,1,.75]],
-    [[0,79,2,.85],[2,74,2,.70]]
+    [[0,79,.5,.92],[.5,76,.5,.72],[1,79,.5,.80],[1.5,81,.5,.74],[2,84,1,.95],[3,81,1,.82]],
+    [[0,83,.5,.90],[.5,81,.5,.76],[1,79,1,.84],[2,74,2,.80]],
+    [[0,81,.5,.86],[.5,84,.5,.92],[1,83,.5,.80],[1.5,81,.5,.76],[2,76,2,.80]],
+    [[0,77,.5,.82],[.5,81,.5,.86],[1,84,1,.92],[2,81,2,.80]],
+    [[0,79,.5,.92],[.5,76,.5,.72],[1,79,.5,.80],[1.5,81,.5,.74],[2,84,1,.95],[3,86,1,.86]],
+    [[0,83,1,.90],[1,79,1,.84],[2,74,2,.80]],
+    [[0,81,.5,.86],[.5,79,.5,.80],[1,77,1,.80],[2,81,2,.82]],
+    [[0,79,2,.86],[2,74,2,.70]]
   ];
   const B = [
-    [[0,79,1,.80],[1,76,1,.78],[2,72,2,.72]],
-    [[0,74,1,.80],[1,79,1,.80],[2,83,2,.85]],
-    [[0,81,1,.85],[1,84,1,.88],[2,81,2,.80]],
-    [[0,77,1,.80],[1,81,1,.82],[2,84,2,.86]],
-    [[0,76,1.5,.85],[1.5,79,.5,.72],[2,76,2,.78]],
-    [[0,74,1,.80],[1,83,1,.85],[2,79,2,.82]],
-    [[0,81,1,.82],[1,77,1,.78],[2,72,1,.72],[3,76,1,.75]],
-    [[0,74,4,.72]]
+    [[0,76,1,.80],[1,79,1,.80],[2,84,1.5,.88],[3.5,81,.5,.72]],
+    [[0,83,1,.82],[1,79,1,.80],[2,74,2,.74]],
+    [[0,76,1,.76],[1,81,1,.80],[2,84,2,.86]],
+    [[0,81,1,.80],[1,77,1,.78],[2,72,2,.70]],
+    [[0,79,1,.86],[1,84,1,.90],[2,79,1,.80],[3,76,1,.75]],
+    [[0,74,1,.80],[1,79,1,.82],[2,83,2,.86]],
+    [[0,81,1,.80],[1,77,1,.78],[2,74,1,.74],[3,77,1,.78]],
+    [[0,79,3,.80]]
   ];
 
   function impulse(seconds, decay){
@@ -705,6 +705,14 @@ const Music = (() => {
     return buf;
   }
 
+  function noise(){
+    const len = Math.floor(ctx.sampleRate * 0.2);
+    const b = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = b.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.2);
+    return b;
+  }
+
   function init(){
     if (ctx) return;
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -714,18 +722,19 @@ const Music = (() => {
     master.gain.value = 0;
     soften = ctx.createBiquadFilter();
     soften.type = 'lowpass';
-    soften.frequency.value = 3200;
+    soften.frequency.value = 3600;
     soften.Q.value = 0.3;
     soften.connect(master);
     master.connect(ctx.destination);
 
     const conv = ctx.createConvolver();
-    conv.buffer = impulse(2.6, 2.8);
+    conv.buffer = impulse(2.2, 2.9);
     wet = ctx.createGain();
-    wet.gain.value = 0.48;
+    wet.gain.value = 0.38;
     wet.connect(conv);
     conv.connect(master);
 
+    noiseBuf = noise();
     barTime = ctx.currentTime + 0.15;
     barIndex = 0;
   }
@@ -733,20 +742,20 @@ const Music = (() => {
   function piano(midi, t, dur, vol){
     const f = 440 * Math.pow(2, (midi - 69) / 12);
     const g = ctx.createGain();
-    const atk = 0.014;
-    const tail = Math.max(0.85, dur + 0.45);
+    const atk = 0.012;
+    const tail = Math.max(0.75, dur + 0.4);
     g.gain.setValueAtTime(0.0001, t);
     g.gain.linearRampToValueAtTime(vol, t + atk);
-    g.gain.exponentialRampToValueAtTime(Math.max(vol * 0.42, 0.0003), t + 0.24);
+    g.gain.exponentialRampToValueAtTime(Math.max(vol * 0.45, 0.0003), t + 0.2);
     g.gain.exponentialRampToValueAtTime(0.0001, t + atk + tail);
 
     const pan = ctx.createStereoPanner();
-    pan.pan.value = Math.max(-0.3, Math.min(0.3, (midi - 72) / 20));
+    pan.pan.value = Math.max(-0.28, Math.min(0.28, (midi - 76) / 22));
     g.connect(pan);
     pan.connect(soften);
     pan.connect(wet);
 
-    [[1, 1.0, 'sine'], [2, 0.20, 'sine'], [3, 0.045, 'sine']].forEach(([h, amp, type]) => {
+    [[1, 1.0, 'sine'], [2, 0.20, 'sine'], [3, 0.05, 'sine']].forEach(([h, amp, type]) => {
       const o = ctx.createOscillator();
       o.type = type;
       o.frequency.value = f * h;
@@ -759,22 +768,80 @@ const Music = (() => {
     });
   }
 
-  function pad(tones, t, dur){
-    tones.forEach((m, i) => {
+  function bass(midi, t){
+    const f = 440 * Math.pow(2, (midi - 69) / 12);
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = f;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.045, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+    o.connect(g);
+    g.connect(soften);
+    g.connect(wet);
+    o.start(t);
+    o.stop(t + 0.55);
+  }
+
+  function chord(tones, t, vol){
+    tones.forEach((m) => {
       const f = 440 * Math.pow(2, (m - 69) / 12);
       const o = ctx.createOscillator();
       o.type = 'sine';
       o.frequency.value = f;
       const g = ctx.createGain();
       g.gain.setValueAtTime(0.0001, t);
-      g.gain.linearRampToValueAtTime(0.0085, t + 1.8);
-      g.gain.setValueAtTime(0.0085, t + dur * 0.7);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 1.2);
+      g.gain.linearRampToValueAtTime(vol, t + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
       o.connect(g);
       g.connect(soften);
       g.connect(wet);
       o.start(t);
-      o.stop(t + dur + 1.4);
+      o.stop(t + 0.45);
+    });
+  }
+
+  // sleigh bell: short filtered noise burst
+  function sleigh(t, vol){
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuf;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 5600;
+    bp.Q.value = 1.3;
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 3600;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+    src.connect(bp);
+    bp.connect(hp);
+    hp.connect(g);
+    g.connect(master);   // keep the sparkle out of the lowpass
+    g.connect(wet);
+    src.start(t);
+    src.stop(t + 0.16);
+  }
+
+  function pad(tones, t, dur){
+    tones.forEach((m) => {
+      const f = 440 * Math.pow(2, (m - 12 - 69) / 12);
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = f;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.007, t + 1.2);
+      g.gain.setValueAtTime(0.007, t + dur * 0.7);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.9);
+      o.connect(g);
+      g.connect(soften);
+      g.connect(wet);
+      o.start(t);
+      o.stop(t + dur + 1.1);
     });
   }
 
@@ -784,14 +851,17 @@ const Music = (() => {
     const section = (Math.floor(idx / PROG.length) % 2 === 0) ? A : B;
     const line = section[bar];
 
-    // gentle left hand: root - fifth - octave - third
-    const arp = [ch.tones[0], ch.tones[2], ch.tones[0] + 12, ch.tones[1]];
-    arp.forEach((m, i) => piano(m, t + i * BEAT, BEAT * 1.6, 0.024));
+    bass(ch.bass, t);
+    bass(ch.bass, t + BEAT * 2);
+    chord(ch.tones, t + BEAT, 0.020);
+    chord(ch.tones, t + BEAT * 3, 0.016);
 
-    // melody
-    line.forEach(([b, m, d, v]) => piano(m, t + b * BEAT, d * BEAT, 0.050 * v));
+    [0.5, 1.5, 2.5, 3.5].forEach((b, i) => {
+      sleigh(t + b * BEAT, i % 2 === 0 ? 0.022 : 0.032);
+    });
 
-    // very quiet sustained pad
+    line.forEach(([b, m, d, v]) => piano(m, t + b * BEAT, d * BEAT, 0.056 * v));
+
     pad(ch.tones, t, BAR);
   }
 
