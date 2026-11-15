@@ -29,7 +29,7 @@ Orbit around the floating island, change the time of day, and let it snow.
 | Scroll / pinch | Zoom |
 | Right-drag / two fingers | Pan |
 | Bottom bar | Auto-rotate · Reset view · Save image · Music |
-| Top-right | Time of day · Snowfall |
+| Top-right | Time of day · Snowfall · Volume |
 
 ### Built with
 `Blender 4.5` · `Cycles (OptiX)` · `glTF` · `three.js r170` · `Web Audio API`
@@ -59,7 +59,7 @@ No external assets: the model is procedural and the music is generated in the br
 | 滾輪 / 雙指 | 縮放 |
 | 右鍵拖曳 / 雙指 | 平移 |
 | 下方按鈕 | 自動旋轉 · 重設視角 · 儲存圖片 · 音樂 |
-| 右上方 | 時段 · 雪量 |
+| 右上方 | 時段 · 雪量 · 音量 |
 
 ### 技術
 `Blender 4.5` · `Cycles (OptiX)` · `glTF` · `three.js r170` · `Web Audio API`

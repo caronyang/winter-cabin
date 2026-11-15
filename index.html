@@ -74,6 +74,14 @@
   .seg button:hover{background:rgba(255,255,255,.8)}
   .seg button:active{transform:scale(.97)}
   .seg button.on{background:rgba(120,148,196,.24);color:#3c4a66}
+  .seg.vol{align-items:center;gap:8px;padding:6px 14px}
+  .seg.vol svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.6;
+    stroke-linecap:round;stroke-linejoin:round;opacity:.65;flex:none}
+  .seg.vol input[type=range]{
+    width:88px;height:16px;accent-color:#7f9ccd;cursor:pointer;background:transparent;
+  }
+  .seg.vol span{font-size:11px;letter-spacing:.04em;opacity:.7;min-width:24px;text-align:right}
+  body.night .seg.vol input[type=range]{accent-color:#9fb8e6}
 
   body.night{ --ink:#e9eefb; --ink-soft:#a7b4cc; }
   body.night .bar, body.night .seg{
@@ -135,6 +143,9 @@
     .panel{top:64px;right:12px}
     .seg{padding:4px}
     .seg button{padding:6px 9px;font-size:11px}
+    .seg.vol{padding:5px 10px;gap:6px}
+    .seg.vol input[type=range]{width:64px}
+    .seg.vol span{display:none}
   }
 </style>
 </head>
@@ -155,6 +166,11 @@
   <div class="seg" id="segSnow" role="group" aria-label="雪量">
     <button data-v="light" class="on">小雪</button>
     <button data-v="heavy">大雪</button>
+  </div>
+  <div class="seg vol" title="音樂音量">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 8.5a5 5 0 0 1 0 7"/></svg>
+    <input id="vol" type="range" min="0" max="100" step="1" value="55" aria-label="音樂音量">
+    <span id="volNum">55</span>
   </div>
 </div>
 
@@ -654,7 +670,11 @@ document.querySelectorAll('#segSnow button').forEach(b => {
 /* ---------------- gentle generative music (Web Audio) ---------------- */
 const Music = (() => {
   let ctx = null, master = null, wet = null, soften = null, noiseBuf = null, timer = null;
-  let on = false, barTime = 0, barIndex = 0;
+  let on = false, barTime = 0, barIndex = 0, volumePct = 55;
+  try {
+    const savedVol = parseInt(localStorage.getItem('wc-volume'), 10);
+    if (!isNaN(savedVol)) volumePct = Math.max(0, Math.min(100, savedVol));
+  } catch (e) {}
 
   const BPM = 104;                 // light and brisk, still gentle
   const BEAT = 60 / BPM;
@@ -883,13 +903,29 @@ const Music = (() => {
     master.gain.linearRampToValueAtTime(to, t + seconds);
   }
 
+  const gainFor = (pct) => Math.max(0.0001, (pct / 100) * 0.38);
+
+  function setVolume(pct){
+    volumePct = Math.max(0, Math.min(100, Math.round(pct)));
+    if (ctx && master){
+      const t = ctx.currentTime;
+      master.gain.cancelScheduledValues(t);
+      master.gain.setValueAtTime(Math.max(master.gain.value, 0.0001), t);
+      master.gain.linearRampToValueAtTime(on ? gainFor(volumePct) : 0.0001, t + 0.25);
+    }
+    try { localStorage.setItem('wc-volume', String(volumePct)); } catch (e) {}
+    return volumePct;
+  }
+
+  function getVolume(){ return volumePct; }
+
   function toggle(){
     if (!ctx) init();
     if (ctx.state !== 'running') { try { ctx.resume(); } catch (e) {} }
     on = !on;
     if (on){
       if (barTime < ctx.currentTime) barTime = ctx.currentTime + 0.12;
-      fade(0.21, 2.2);
+      fade(gainFor(volumePct), 2.2);
       if (!timer) timer = setInterval(schedule, 250);
       schedule();
     } else {
@@ -902,6 +938,8 @@ const Music = (() => {
 
   return {
     toggle,
+    setVolume,
+    getVolume,
     isOn(){ return on; },
     get context(){ return ctx; },
     get masterNode(){ return master; }
@@ -946,12 +984,25 @@ btnMusic.addEventListener('click', () => {
   toast(playing ? '背景音樂已開啟' : '背景音樂已關閉');
 });
 
-if (wakeArmed){
-  document.addEventListener('pointerdown', wake, { once: true });
-  document.addEventListener('keydown', wake, { once: true });
-  document.addEventListener('touchstart', wake, { once: true, passive: true });
-}
 syncMusicBtn();
+
+const volInput = document.getElementById('vol');
+const volNum = document.getElementById('volNum');
+function syncVolUI(){
+  const v = Music.getVolume();
+  if (volInput) volInput.value = String(v);
+  if (volNum) volNum.textContent = String(v);
+}
+if (volInput){
+  volInput.addEventListener('input', () => {
+    const v = Music.setVolume(parseInt(volInput.value, 10) || 0);
+    if (volNum) volNum.textContent = String(v);
+  });
+  volInput.addEventListener('change', () => {
+    toast('音量 ' + Music.getVolume() + '%');
+  });
+}
+syncVolUI();
 
 /* ---------------- loop ---------------- */
 const clock = new THREE.Clock();
